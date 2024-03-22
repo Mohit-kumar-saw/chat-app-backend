@@ -3,51 +3,78 @@ const Chat = require("../models/chatModel");
 const User = require("../models/userModel");
 
 const accessChat = asyncHandler(async (req, res) => {
-  const { userId } = req.body;
+  const { userId, isGroupChat, groupId } = req.body;
+  console.log(userId, isGroupChat, groupId);
 
   if (!userId) {
     console.log("UserId param not sent with request");
     return res.sendStatus(400);
   }
 
-  var isChat = await Chat.find({
-    isGroupChat: false,
-    $and: [
-      { users: { $elemMatch: { $eq: req.user._id } } },
-      { users: { $elemMatch: { $eq: userId } } },
-    ],
-  })
-    .populate("users", "-password")
-    .populate("latestMessage");
-
-  isChat = await User.populate(isChat, {
-    path: "latestMessage.sender",
-    select: "name email",
-  });
-
-  if (isChat.length > 0) {
-    res.send(isChat[0]);
-  } else {
-    var chatData = {
-      chatName: "sender",
-      isGroupChat: false,
-      users: [req.user._id, userId],
-    };
+  if (isGroupChat) {
+    // Add user to the group
+    if (!groupId) {
+      console.log("group id is unavailable");
+    }
 
     try {
-      const createdChat = await Chat.create(chatData);
-      const FullChat = await Chat.findOne({ _id: createdChat._id }).populate(
-        "users",
-        "-password"
-      );
-      res.status(200).json(FullChat);
+      const chat = await Chat.findById(groupId);
+      if (!chat) {
+        console.log("Group chat not found");
+        return res.sendStatus(404);
+      }
+
+      chat.users.push(userId);
+      await chat.save();
+
+      const updatedChat = await Chat.findById(chat._id)
+        .populate("users", "-password")
+        .populate("latestMessage");
+      res.status(200).json(updatedChat);
     } catch (error) {
-      res.status(400);
-      throw new Error(error.message);
+      console.error("Error adding user to group:", error);
+      res.status(500).json({ message: "Failed to add user to group" });
+    }
+  } else {
+    // Check if chat exists between the two users
+    var isChat = await Chat.find({
+      isGroupChat: false,
+      $and: [
+        { users: { $elemMatch: { $eq: req.user._id } } },
+        { users: { $elemMatch: { $eq: userId } } },
+      ],
+    })
+      .populate("users", "-password")
+      .populate("latestMessage");
+
+    isChat = await User.populate(isChat, {
+      path: "latestMessage.sender",
+      select: "name email",
+    });
+
+    if (isChat.length > 0) {
+      res.send(isChat[0]);
+    } else {
+      var chatData = {
+        chatName: "sender",
+        isGroupChat: false,
+        users: [req.user._id, userId],
+      };
+
+      try {
+        const createdChat = await Chat.create(chatData);
+        const fullChat = await Chat.findById(createdChat._id).populate(
+          "users",
+          "-password"
+        );
+        res.status(200).json(fullChat);
+      } catch (error) {
+        res.status(400);
+        throw new Error(error.message);
+      }
     }
   }
 });
-
 const fetchChats = asyncHandler(async (req, res) => {
   try {
     console.log("Fetch Chats aPI : ", req);
