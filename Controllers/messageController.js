@@ -1,18 +1,54 @@
 const expressAsyncHandler = require("express-async-handler");
 const Message = require("../models/messageModel");
-const User = require("../models/userModel");
+const { User } = require("../models/userModel");
 const Chat = require("../models/chatModel");
 
 const allMessages = expressAsyncHandler(async (req, res) => {
   try {
     const messages = await Message.find({ chat: req.params.chatId })
-      .populate("sender", "name email")
-      .populate("reciever")
-      .populate("chat");
+      .populate({
+        path: "sender",
+        select: "username email"
+      })
+      .populate({
+        path: "chat",
+        populate: {
+          path: "users",
+          select: "username email"
+        }
+      })
+      .populate("readBy", "username email");
+
+    if (!messages) {
+      return res.status(404).json({ message: "No messages found" });
+    }
+
+    // Mark messages as read
+    const unreadMessages = messages.filter(
+      msg => !msg.readBy.some(user => user._id.toString() === req.user._id.toString())
+    );
+
+    if (unreadMessages.length > 0) {
+      await Promise.all(
+        unreadMessages.map(msg =>
+          Message.findByIdAndUpdate(
+            msg._id,
+            {
+              $addToSet: { readBy: req.user._id }
+            },
+            { new: true }
+          )
+        )
+      );
+    }
+
     res.json(messages);
   } catch (error) {
-    res.status(400);
-    throw new Error(error.message);
+    console.error("Error fetching messages:", error);
+    res.status(500).json({ 
+      message: "Error fetching messages",
+      error: error.message 
+    });
   }
 });
 
@@ -21,32 +57,58 @@ const sendMessage = expressAsyncHandler(async (req, res) => {
 
   if (!content || !chatId) {
     console.log("Invalid data passed into request");
-    return res.sendStatus(400);
+    return res.status(400).json({ message: "Content and chatId are required" });
   }
 
-  var newMessage = {
+  if (!req.user || !req.user._id) {
+    return res.status(401).json({ message: "User not authenticated" });
+  }
+
+  try {
+    // First verify that the chat exists and user is a member
+    const chat = await Chat.findOne({
+      _id: chatId,
+      users: { $elemMatch: { $eq: req.user._id } }
+    });
+
+    if (!chat) {
+      return res.status(404).json({ message: "Chat not found or user not authorized" });
+    }
+
+    const newMessage = await Message.create({
     sender: req.user._id,
     content: content,
     chat: chatId,
-  };
-
-  try {
-    var message = await Message.create(newMessage);
-
-    console.log(message);
-    message = await message.populate("sender", "name pic");
-    message = await message.populate("chat");
-    message = await message.populate("reciever");
-    message = await User.populate(message, {
-      path: "chat.users",
-      select: "name email",
+      readBy: [req.user._id] // Mark as read by sender
     });
 
-    await Chat.findByIdAndUpdate(req.body.chatId, { latestMessage: message });
-    res.json(message);
+    // Populate the message with required fields
+    let populatedMessage = await Message.findById(newMessage._id)
+      .populate({
+        path: "sender",
+        select: "username email"
+      })
+      .populate({
+        path: "chat",
+        populate: {
+          path: "users",
+          select: "username email"
+        }
+      })
+      .populate("readBy", "username email");
+
+    // Update the chat's latest message
+    await Chat.findByIdAndUpdate(chatId, { 
+      latestMessage: populatedMessage._id 
+    });
+
+    res.status(200).json(populatedMessage);
   } catch (error) {
-    res.status(400);
-    throw new Error(error.message);
+    console.error("Error in sendMessage:", error);
+    res.status(500).json({ 
+      message: "Error sending message",
+      error: error.message 
+    });
   }
 });
 
