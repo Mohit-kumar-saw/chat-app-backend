@@ -40,9 +40,9 @@ const loginController = expressAsyncHandler(async (req, res) => {
     res.status(200).json({
       success: true,
       data: {
-        _id: user._id,
+      _id: user._id,
         username: user.username,
-        email: user.email,
+      email: user.email,
         token: generateToken(user._id)
       }
     });
@@ -93,13 +93,13 @@ const registerController = expressAsyncHandler(async (req, res) => {
       password
     });
 
-    if (user) {
-      res.status(201).json({
+  if (user) {
+    res.status(201).json({
         success: true,
         data: {
-          _id: user._id,
+      _id: user._id,
           username: user.username,
-          email: user.email,
+      email: user.email,
           token: generateToken(user._id)
         }
       });
@@ -136,14 +136,14 @@ const fetchAllUsersController = expressAsyncHandler(async (req, res) => {
   try {
     console.log("Search query:", req.query.search);
     
-    const keyword = req.query.search
-      ? {
-          $or: [
+  const keyword = req.query.search
+    ? {
+        $or: [
             { username: { $regex: req.query.search, $options: "i" } },
-            { email: { $regex: req.query.search, $options: "i" } },
-          ],
-        }
-      : {};
+          { email: { $regex: req.query.search, $options: "i" } },
+        ],
+      }
+    : {};
 
     console.log("Search filter:", keyword);
 

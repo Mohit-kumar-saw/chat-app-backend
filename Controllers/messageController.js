@@ -69,16 +69,30 @@ const sendMessage = expressAsyncHandler(async (req, res) => {
     const chat = await Chat.findOne({
       _id: chatId,
       users: { $elemMatch: { $eq: req.user._id } }
-    });
+    }).populate("users", "username email");
 
     if (!chat) {
-      return res.status(404).json({ message: "Chat not found or user not authorized" });
+      return res.status(403).json({ 
+        message: "You are no longer a member of this conversation",
+        error: "NOT_MEMBER"
+      });
+    }
+
+    // Additional check for group chat membership
+    if (chat.isGroupChat) {
+      const isMember = chat.users.some(user => user._id.toString() === req.user._id.toString());
+      if (!isMember) {
+        return res.status(403).json({ 
+          message: "You are no longer a member of this group",
+          error: "NOT_GROUP_MEMBER"
+        });
+      }
     }
 
     const newMessage = await Message.create({
-    sender: req.user._id,
-    content: content,
-    chat: chatId,
+      sender: req.user._id,
+      content: content,
+      chat: chatId,
       readBy: [req.user._id] // Mark as read by sender
     });
 
